@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Master Prompt Tuner</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161922;
+    --panel-2: #1d2130;
+    --border: #2a2f3d;
+    --text: #e6e8ee;
+    --text-dim: #9aa1b2;
+    --accent: #6ea8fe;
+    --accent-dim: #2f4a7c;
+    --good: #6fcf97;
+    --bad: #eb5757;
+    --warn: #f2c94c;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  [data-theme="light"] {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --panel-2: #eef0f4;
+    --border: #dde1e8;
+    --text: #1b1e27;
+    --text-dim: #5b6270;
+    --accent: #2f5fd6;
+    --accent-dim: #dbe6ff;
+    --good: #1d9c5b;
+    --bad: #c0392b;
+    --warn: #b8860b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    flex-wrap: wrap;
+  }
+  header h1 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0;
+    margin-right: 8px;
+    white-space: nowrap;
+  }
+  header .spacer { flex: 1; }
+  button, select {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12.5px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0b1020;
+    font-weight: 600;
+  }
+  button.primary:hover { color: #0b1020; filter: brightness(1.08); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button:disabled:hover { border-color: var(--border); color: var(--text); }
+
+  main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+  #sidebar {
+    width: 260px;
+    border-right: 1px solid var(--border);
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  #sidebar h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    padding: 12px 14px 6px;
+    margin: 0;
+  }
+  #versionList {
+    overflow-y: auto;
+    flex: 1;
+    padding: 0 8px 8px;
+  }
+  .version-item {
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-bottom: 4px;
+    border: 1px solid transparent;
+  }
+  .version-item:hover { background: var(--panel-2); }
+  .version-item.selected { background: var(--accent-dim); border-color: var(--accent); }
+  .version-item .v-label { font-size: 12.5px; font-weight: 600; display: block; }
+  .version-item .v-meta { font-size: 11px; color: var(--text-dim); display: block; margin-top: 2px; }
+  .version-item .v-actions { margin-top: 6px; display: flex; gap: 6px; }
+  .version-item .v-actions button { padding: 2px 7px; font-size: 11px; }
+  #outline {
+    border-top: 1px solid var(--border);
+    max-height: 35%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  #outlineList { overflow-y: auto; padding: 0 8px 12px; }
+  .outline-item {
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 5px;
+    cursor: pointer;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .outline-item:hover { background: var(--panel-2); color: var(--text); }
+
+  #content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #editorArea { flex: 1; display: flex; min-height: 0; }
+  textarea#editor {
+    flex: 1;
+    resize: none;
+    border: none;
+    outline: none;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.55;
+    padding: 16px 18px;
+  }
+
+  #compareView {
+    flex: 1;
+    display: none;
+    min-height: 0;
+  }
+  #compareView.active { display: flex; }
+  #editorArea.hidden { display: none; }
+  .diff-pane {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+    border-right: 1px solid var(--border);
+  }
+  .diff-pane:last-child { border-right: none; }
+  .diff-pane h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin: 0 0 8px;
+    position: sticky;
+    top: -14px;
+    background: var(--bg);
+    padding: 6px 0;
+  }
+  .diff-line { white-space: pre-wrap; word-break: break-word; padding: 1px 6px; border-radius: 3px; }
+  .diff-add { background: rgba(111, 207, 151, 0.18); color: var(--good); }
+  .diff-del { background: rgba(235, 87, 87, 0.15); color: var(--bad); text-decoration: line-through; opacity: 0.85; }
+  .diff-ctx { color: var(--text-dim); }
+
+  footer {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 7px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    font-size: 11.5px;
+    color: var(--text-dim);
+    flex-wrap: wrap;
+  }
+  footer b { color: var(--text); font-weight: 600; }
+  footer .fspacer { flex: 1; }
+  #saveStatus { transition: opacity 0.3s; }
+
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    display: none; align-items: center; justify-content: center; z-index: 50;
+  }
+  .modal-backdrop.active { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px; width: 340px; max-width: 90vw;
+  }
+  .modal h3 { margin: 0 0 12px; font-size: 14px; }
+  .modal input[type=text] {
+    width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font-size: 13px; margin-bottom: 14px;
+  }
+  .modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  input[type=file] { display: none; }
+</style>
+</head>
+<body data-theme="dark">
+
+<header>
+  <h1>🎛️ Master Prompt Tuner</h1>
+  <button id="btnSaveVersion" class="primary">Save version</button>
+  <button id="btnCompare">Compare mode</button>
+  <select id="compareBaseSelect" style="display:none"></select>
+  <span style="display:none" id="compareArrow">→</span>
+  <select id="compareTargetSelect" style="display:none"></select>
+  <div class="spacer"></div>
+  <button id="btnImport">Import…</button>
+  <input type="file" id="fileInput" accept=".txt,.md,.json">
+  <button id="btnExport">Export .md</button>
+  <button id="btnExportJson">Export all (.json)</button>
+  <button id="btnTheme">☀️ / 🌙</button>
+</header>
+
+<main>
+  <div id="sidebar">
+    <h2>Versions</h2>
+    <div id="versionList"></div>
+    <div id="outline">
+      <h2>Outline</h2>
+      <div id="outlineList"></div>
+    </div>
+  </div>
+
+  <div id="content">
+    <div id="editorArea">
+      <textarea id="editor" spellcheck="false" placeholder="Paste or write your master prompt here.
+
+Use Markdown-style headers (# Section, ## Subsection) to get an auto-generated outline in the sidebar.
+
+Click 'Save version' any time you want to snapshot the current state, then use Compare mode to see exactly what changed between two snapshots."></textarea>
+    </div>
+    <div id="compareView">
+      <div class="diff-pane"><h3 id="baseLabel">Base</h3><div id="baseDiff"></div></div>
+      <div class="diff-pane"><h3 id="targetLabel">Target</h3><div id="targetDiff"></div></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <span><b id="charCount">0</b> chars</span>
+  <span><b id="wordCount">0</b> words</span>
+  <span><b id="tokenCount">0</b> ~tokens</span>
+  <span><b id="lineCount">0</b> lines</span>
+  <span><b id="sectionCount">0</b> sections</span>
+  <div class="fspacer"></div>
+  <span id="saveStatus">Autosaved</span>
+</footer>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal">
+    <h3>Name this version</h3>
+    <input type="text" id="versionNameInput" placeholder="e.g. v3 - shorter tone rules">
+    <div class="modal-actions">
+      <button id="modalCancel">Cancel</button>
+      <button id="modalSave" class="primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const STORAGE_KEY = 'masterPromptTuner.versions.v1';
+  const DRAFT_KEY = 'masterPromptTuner.draft.v1';
+  const THEME_KEY = 'masterPromptTuner.theme.v1';
+
+  const editor = document.getElementById('editor');
+  const versionList = document.getElementById('versionList');
+  const outlineList = document.getElementById('outlineList');
+  const charCount = document.getElementById('charCount');
+  const wordCount = document.getElementById('wordCount');
+  const tokenCount = document.getElementById('tokenCount');
+  const lineCount = document.getElementById('lineCount');
+  const sectionCount = document.getElementById('sectionCount');
+  const saveStatus = document.getElementById('saveStatus');
+
+  const btnSaveVersion = document.getElementById('btnSaveVersion');
+  const btnCompare = document.getElementById('btnCompare');
+  const compareBaseSelect = document.getElementById('compareBaseSelect');
+  const compareTargetSelect = document.getElementById('compareTargetSelect');
+  const compareArrow = document.getElementById('compareArrow');
+  const editorArea = document.getElementById('editorArea');
+  const compareView = document.getElementById('compareView');
+  const baseDiff = document.getElementById('baseDiff');
+  const targetDiff = document.getElementById('targetDiff');
+  const baseLabel = document.getElementById('baseLabel');
+  const targetLabel = document.getElementById('targetLabel');
+
+  const btnImport = document.getElementById('btnImport');
+  const fileInput = document.getElementById('fileInput');
+  const btnExport = document.getElementById('btnExport');
+  const btnExportJson = document.getElementById('btnExportJson');
+  const btnTheme = document.getElementById('btnTheme');
+
+  const modalBackdrop = document.getElementById('modalBackdrop');
+  const versionNameInput = document.getElementById('versionNameInput');
+  const modalCancel = document.getElementById('modalCancel');
+  const modalSave = document.getElementById('modalSave');
+
+  let versions = loadVersions();
+  let compareMode = false;
+  let selectedVersionId = null;
+
+  function loadVersions() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    } catch (e) { return []; }
+  }
+  function persistVersions() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(versions));
+  }
+  function loadDraft() {
+    return localStorage.getItem(DRAFT_KEY) || '';
+  }
+  function persistDraft() {
+    localStorage.setItem(DRAFT_KEY, editor.value);
+  }
+
+  // ---------- init ----------
+  const savedTheme = localStorage.getItem(THEME_KEY);
+  if (savedTheme) document.body.setAttribute('data-theme', savedTheme);
+
+  editor.value = loadDraft();
+  renderVersionList();
+  updateStats();
+  renderOutline();
+
+  // ---------- stats ----------
+  function updateStats() {
+    const text = editor.value;
+    charCount.textContent = text.length.toLocaleString();
+    const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+    wordCount.textContent = words.toLocaleString();
+    tokenCount.textContent = Math.round(text.length / 4).toLocaleString();
+    lineCount.textContent = text ? text.split('\n').length : 0;
+    const sections = (text.match(/^#{1,6}\s+.+$/gm) || []).length;
+    sectionCount.textContent = sections;
+  }
+
+  function renderOutline() {
+    const text = editor.value;
+    const lines = text.split('\n');
+    outlineList.innerHTML = '';
+    lines.forEach((line, idx) => {
+      const m = line.match(/^(#{1,6})\s+(.*)$/);
+      if (m) {
+        const el = document.createElement('div');
+        el.className = 'outline-item';
+        el.style.paddingLeft = (8 + (m[1].length - 1) * 10) + 'px';
+        el.textContent = m[2];
+        el.title = m[2];
+        el.addEventListener('click', () => jumpToLine(idx));
+        outlineList.appendChild(el);
+      }
+    });
+    if (!outlineList.children.length) {
+      outlineList.innerHTML = '<div class="outline-item" style="cursor:default">No # headers yet</div>';
+    }
+  }
+
+  function jumpToLine(lineIdx) {
+    const lines = editor.value.split('\n');
+    let pos = 0;
+    for (let i = 0; i < lineIdx; i++) pos += lines[i].length + 1;
+    editor.focus();
+    editor.setSelectionRange(pos, pos + lines[lineIdx].length);
+    const lineHeight = 21;
+    editor.scrollTop = Math.max(0, lineIdx * lineHeight - 100);
+  }
+
+  let saveTimer = null;
+  editor.addEventListener('input', () => {
+    updateStats();
+    renderOutline();
+    saveStatus.textContent = 'Saving…';
+    saveStatus.style.opacity = '1';
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      persistDraft();
+      saveStatus.textContent = 'Autosaved';
+    }, 400);
+  });
+
+  // ---------- versions ----------
+  function renderVersionList() {
+    versionList.innerHTML = '';
+    if (!versions.length) {
+      versionList.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--text-dim)">No saved versions yet. Write a draft and click "Save version".</div>';
+    }
+    versions.slice().reverse().forEach(v => {
+      const item = document.createElement('div');
+      item.className = 'version-item' + (v.id === selectedVersionId ? ' selected' : '');
+      const date = new Date(v.timestamp);
+      item.innerHTML = `
+        <span class="v-label">${escapeHtml(v.label)}</span>
+        <span class="v-meta">${date.toLocaleString()} · ${v.content.length.toLocaleString()} chars</span>
+        <div class="v-actions">
+          <button data-act="load">Load</button>
+          <button data-act="rename">Rename</button>
+          <button data-act="delete">Delete</button>
+        </div>
+      `;
+      item.querySelector('[data-act=load]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        editor.value = v.content;
+        selectedVersionId = v.id;
+        updateStats();
+        renderOutline();
+        persistDraft();
+        renderVersionList();
+      });
+      item.querySelector('[data-act=rename]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const name = prompt('Rename version:', v.label);
+        if (name) { v.label = name; persistVersions(); renderVersionList(); refreshCompareSelects(); }
+      });
+      item.querySelector('[data-act=delete]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (confirm(`Delete version "${v.label}"?`)) {
+          versions = versions.filter(x => x.id !== v.id);
+          persistVersions();
+          renderVersionList();
+          refreshCompareSelects();
+        }
+      });
+      versionList.appendChild(item);
+    });
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  btnSaveVersion.addEventListener('click', () => {
+    versionNameInput.value = `v${versions.length + 1}`;
+    modalBackdrop.classList.add('active');
+    versionNameInput.focus();
+    versionNameInput.select();
+  });
+  modalCancel.addEventListener('click', () => modalBackdrop.classList.remove('active'));
+  modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop) modalBackdrop.classList.remove('active'); });
+  modalSave.addEventListener('click', saveVersionFromModal);
+  versionNameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveVersionFromModal(); });
+
+  function saveVersionFromModal() {
+    const label = versionNameInput.value.trim() || `v${versions.length + 1}`;
+    const v = { id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()), label, content: editor.value, timestamp: Date.now() };
+    versions.push(v);
+    persistVersions();
+    selectedVersionId = v.id;
+    renderVersionList();
+    refreshCompareSelects();
+    modalBackdrop.classList.remove('active');
+  }
+
+  // ---------- compare mode ----------
+  btnCompare.addEventListener('click', () => {
+    compareMode = !compareMode;
+    editorArea.classList.toggle('hidden', compareMode);
+    compareView.classList.toggle('active', compareMode);
+    compareBaseSelect.style.display = compareMode ? 'inline-block' : 'none';
+    compareTargetSelect.style.display = compareMode ? 'inline-block' : 'none';
+    compareArrow.style.display = compareMode ? 'inline' : 'none';
+    btnCompare.textContent = compareMode ? 'Back to editor' : 'Compare mode';
+    if (compareMode) {
+      refreshCompareSelects();
+      renderDiff();
+    }
+  });
+
+  function refreshCompareSelects() {
+    const opts = versions.map(v => `<option value="${v.id}">${escapeHtml(v.label)}</option>`).join('');
+    compareBaseSelect.innerHTML = opts;
+    compareTargetSelect.innerHTML = opts;
+    if (versions.length >= 2) {
+      compareBaseSelect.selectedIndex = versions.length - 2;
+      compareTargetSelect.selectedIndex = versions.length - 1;
+    } else if (versions.length === 1) {
+      compareBaseSelect.selectedIndex = 0;
+      compareTargetSelect.selectedIndex = 0;
+    }
+  }
+  compareBaseSelect.addEventListener('change', renderDiff);
+  compareTargetSelect.addEventListener('change', renderDiff);
+
+  function renderDiff() {
+    const base = versions.find(v => v.id === compareBaseSelect.value);
+    const target = versions.find(v => v.id === compareTargetSelect.value);
+    if (!base || !target) {
+      baseDiff.innerHTML = '<div style="color:var(--text-dim)">Save at least two versions to compare.</div>';
+      targetDiff.innerHTML = '';
+      return;
+    }
+    baseLabel.textContent = base.label;
+    targetLabel.textContent = target.label;
+    const diff = lineDiff(base.content.split('\n'), target.content.split('\n'));
+    const baseHtml = [];
+    const targetHtml = [];
+    diff.forEach(([type, line]) => {
+      const escaped = escapeHtml(line) || '&nbsp;';
+      if (type === 'ctx') {
+        baseHtml.push(`<div class="diff-line diff-ctx">${escaped}</div>`);
+        targetHtml.push(`<div class="diff-line diff-ctx">${escaped}</div>`);
+      } else if (type === 'del') {
+        baseHtml.push(`<div class="diff-line diff-del">${escaped}</div>`);
+      } else if (type === 'add') {
+        targetHtml.push(`<div class="diff-line diff-add">${escaped}</div>`);
+      }
+    });
+    baseDiff.innerHTML = baseHtml.join('');
+    targetDiff.innerHTML = targetHtml.join('');
+  }
+
+  // Simple LCS-based line diff -> list of [type, line], type in ctx|add|del
+  function lineDiff(a, b) {
+    const n = a.length, m = b.length;
+    const dp = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+    const result = [];
+    let i = 0, j = 0;
+    while (i < n && j < m) {
+      if (a[i] === b[j]) { result.push(['ctx', a[i]]); i++; j++; }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) { result.push(['del', a[i]]); i++; }
+      else { result.push(['add', b[j]]); j++; }
+    }
+    while (i < n) { result.push(['del', a[i]]); i++; }
+    while (j < m) { result.push(['add', b[j]]); j++; }
+    return result;
+  }
+
+  // ---------- import / export ----------
+  btnImport.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (file.name.endsWith('.json')) {
+        try {
+          const imported = JSON.parse(reader.result);
+          if (Array.isArray(imported)) {
+            versions = versions.concat(imported.filter(v => v && v.content && v.label));
+            persistVersions();
+            renderVersionList();
+            refreshCompareSelects();
+            alert(`Imported ${imported.length} version(s).`);
+          }
+        } catch (e) {
+          alert('Could not parse JSON file.');
+        }
+      } else {
+        editor.value = reader.result;
+        updateStats();
+        renderOutline();
+        persistDraft();
+      }
+    };
+    reader.readAsText(file);
+    fileInput.value = '';
+  });
+
+  btnExport.addEventListener('click', () => {
+    downloadFile('master-prompt.md', editor.value, 'text/markdown');
+  });
+  btnExportJson.addEventListener('click', () => {
+    downloadFile('master-prompt-versions.json', JSON.stringify(versions, null, 2), 'application/json');
+  });
+
+  function downloadFile(filename, content, mime) {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ---------- theme ----------
+  btnTheme.addEventListener('click', () => {
+    const current = document.body.getAttribute('data-theme');
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.body.setAttribute('data-theme', next);
+    localStorage.setItem(THEME_KEY, next);
+  });
+})();
+</script>
+</body>
+</html>
